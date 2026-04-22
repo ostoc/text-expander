@@ -1,9 +1,18 @@
 document.addEventListener('DOMContentLoaded', () => {
   loadSnippets();
-  loadDelay();
 
   document.getElementById('addBtn').addEventListener('click', addSnippet);
+  document.getElementById('cancelBtn').addEventListener('click', cancelEdit);
 });
+
+function cancelEdit() {
+  editingIndex = null;
+  document.getElementById('shortcut').value = '';
+  document.getElementById('expansion').value = '';
+  document.getElementById('description').value = '';
+  document.getElementById('addBtn').textContent = 'Add Snippet';
+  document.getElementById('cancelBtn').classList.add('hidden');
+}
 
 function loadSnippets() {
   browser.storage.local.get('snippets').then((result) => {
@@ -30,7 +39,10 @@ function renderSnippets(snippets) {
         <div class="snippet-expansion">${escapeHtml(snippet.expansion)}</div>
         ${snippet.description ? `<div class="snippet-description">${escapeHtml(snippet.description)}</div>` : ''}
       </div>
-      <button class="delete-btn" data-index="${index}">Delete</button>
+      <div class="snippet-actions">
+        <button class="edit-btn" data-index="${index}">Edit</button>
+        <button class="delete-btn" data-index="${index}">Delete</button>
+      </div>
     `;
     container.appendChild(item);
   });
@@ -38,7 +50,13 @@ function renderSnippets(snippets) {
   document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => deleteSnippet(parseInt(e.target.dataset.index)));
   });
+
+  document.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => editSnippet(parseInt(e.target.dataset.index)));
+  });
 }
+
+let editingIndex = null;
 
 function addSnippet() {
   const shortcut = document.getElementById('shortcut').value.trim();
@@ -52,13 +70,35 @@ function addSnippet() {
 
   browser.storage.local.get('snippets').then((result) => {
     const snippets = result.snippets || [];
-    snippets.push({ shortcut, expansion, description });
+    if (editingIndex !== null) {
+      snippets[editingIndex] = { shortcut, expansion, description };
+      editingIndex = null;
+      document.getElementById('addBtn').textContent = 'Add Snippet';
+      document.getElementById('cancelBtn').classList.add('hidden');
+    } else {
+      snippets.push({ shortcut, expansion, description });
+    }
     return browser.storage.local.set({ snippets });
   }).then(() => {
     document.getElementById('shortcut').value = '';
     document.getElementById('expansion').value = '';
     document.getElementById('description').value = '';
     loadSnippets();
+  });
+}
+
+function editSnippet(index) {
+  browser.storage.local.get('snippets').then((result) => {
+    const snippets = result.snippets || [];
+    const snippet = snippets[index];
+    if (!snippet) return;
+
+    editingIndex = index;
+    document.getElementById('shortcut').value = snippet.shortcut;
+    document.getElementById('expansion').value = snippet.expansion;
+    document.getElementById('description').value = snippet.description || '';
+    document.getElementById('addBtn').textContent = 'Save Changes';
+    document.getElementById('cancelBtn').classList.remove('hidden');
   });
 }
 

@@ -96,6 +96,11 @@ button:hover {
   gap: 12px;
 }
 
+.snippet-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .snippet-item:last-child {
   border-bottom: none;
 }
@@ -124,6 +129,41 @@ button:hover {
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.form-actions button {
+  background: #1a73e8;
+}
+
+.form-actions button:hover {
+  background: #1557b0;
+}
+
+#cancelBtn {
+  background: #6c757d;
+}
+
+#cancelBtn:hover {
+  background: #5a6268;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.edit-btn {
+  background: #6c757d;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.edit-btn:hover {
+  background: #5a6268;
 }
 
 .delete-btn {
