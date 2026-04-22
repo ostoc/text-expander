@@ -1,3 +1,5 @@
-browser.action.onClicked.addListener(() => {
-  browser.runtime.openOptionsPage();
+const api = typeof browser !== 'undefined' ? browser : chrome;
+
+api.action.onClicked.addListener(() => {
+  api.runtime.openOptionsPage();
 });

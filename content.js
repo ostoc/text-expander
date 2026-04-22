@@ -1,15 +1,17 @@
 (function() {
+  const api = typeof browser !== 'undefined' ? browser : chrome;
 
   const KEYCODE_BACKSPACE = 8;
-  const EXPANSION_DELAY = 400;
+  const EXPANSION_DELAY = 100;
   const CLEAR_BUFFER_TIMEOUT = 750;
+  const TRIGGER_KEYS = new Set([' ', 'Tab', 'Enter']);
 
   let snippets = [];
   let expansionTimer = null;
   let typingTimer = null;
 
   function loadSnippets() {
-    return browser.storage.local.get('snippets').then((result) => {
+    return api.storage.local.get('snippets').then((result) => {
       snippets = result.snippets || [];
     }).catch((err) => {
       console.error('Text Expander: Error loading snippets', err);
@@ -172,7 +174,7 @@
     html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
     html = html.replace(/~~(.+?)~~/g, '<s>$1</s>');
     html = html.replace(/(^|[^\*])\*([^\*]+)\*(?!\*)/g, '$1<em>$2</em>');
-    html = html.replace(/(^|[^_])_([^_]+)_(?!_)/g, '$1<em>$2</em>');
+    html = html.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em>$1</em>');
 
     return html;
   }
@@ -578,6 +580,33 @@
     }
   }
 
+  function handleKeyDown(event) {
+    if (!TRIGGER_KEYS.has(event.key)) return;
+
+    let target = event.target;
+    if (!target || !isEditableElement(target)) {
+      target = getFocusedEditableElement(window);
+    }
+    if (!target || !isEditableElement(target)) return;
+    if (!snippets.length) return;
+
+    const currentText = getTextContent(target);
+    if (!currentText) return;
+
+    const cursorPos = getCursorPosition(target, window);
+    if (cursorPos === 0) return;
+
+    const lastWord = findLastWordForShortcuts(currentText, cursorPos);
+    if (!lastWord || lastWord.length < 2) return;
+
+    const match = snippets.find((s) => s.shortcut === lastWord);
+    if (match) {
+      event.preventDefault();
+      clearTimers();
+      expandText(target, lastWord, match.expansion, window);
+    }
+  }
+
   function handleInput(event) {
     let target = event.target;
 
@@ -614,6 +643,7 @@
     if (!doc || !doc.addEventListener) return;
     if (!win) win = doc.defaultView;
 
+    doc.addEventListener('keydown', handleKeyDown, true);
     doc.addEventListener('input', handleInput, true);
     doc.addEventListener('keyup', handleKeyUp, true);
     doc.addEventListener('blur', handleBlur, true);
@@ -649,7 +679,7 @@
 
   loadSnippets().then(init);
 
-  browser.storage.onChanged.addListener((changes) => {
+  api.storage.onChanged.addListener((changes) => {
     if (changes.snippets) {
       loadSnippets();
     }
