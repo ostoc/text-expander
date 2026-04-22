@@ -20,61 +20,56 @@
   }
 
   function isEditableElement(el) {
-    if (!el) return false;
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+
     const tagName = el.tagName.toLowerCase();
-    return tagName === 'input' || tagName === 'textarea' ||
-           el.isContentEditable ||
-           el.getAttribute('contenteditable') === 'true';
+    return tagName === 'input' ||
+      tagName === 'textarea' ||
+      el.isContentEditable ||
+      el.getAttribute('contenteditable') === 'true';
   }
 
   function getTextContent(el) {
     if (el.nodeName === 'INPUT' || el.nodeName === 'TEXTAREA') {
       return el.value;
     }
+
     return el.textContent || '';
   }
 
   function getCursorPosition(el, win) {
     if (!win) win = window;
-    let pos = 0;
 
     if (el.nodeName === 'INPUT' || el.nodeName === 'TEXTAREA') {
       try {
-        pos = el.selectionStart;
+        return el.selectionStart;
       } catch (e) {
-        pos = el.value.length;
-      }
-    } else {
-      try {
-        const sel = win.getSelection();
-        if (sel && sel.rangeCount) {
-          const range = sel.getRangeAt(0);
-          pos = range.endOffset;
-        }
-      } catch (e) {
-        pos = 0;
+        return el.value.length;
       }
     }
-    return pos;
-  }
 
-  function setCursorPosition(el, pos, win) {
-    if (!win) win = window;
+    try {
+      const sel = win.getSelection();
+      if (!sel || !sel.rangeCount) return 0;
 
-    if (el.nodeName === 'INPUT' || el.nodeName === 'TEXTAREA') {
-      try {
-        if (el.setSelectionRange) {
-          el.setSelectionRange(pos, pos);
-        }
-      } catch (e) {}
+      const range = sel.getRangeAt(0);
+      const preRange = range.cloneRange();
+      preRange.selectNodeContents(el);
+      preRange.setEnd(range.endContainer, range.endOffset);
+      return preRange.toString().length;
+    } catch (e) {
+      return 0;
     }
   }
 
-  function getLastWord(text, cursorPos) {
-    if (cursorPos === 0) return '';
-    const textBeforeCursor = text.slice(0, cursorPos);
-    const words = textBeforeCursor.split(/[\s\n]+/);
-    return words[words.length - 1] || '';
+  function setCursorPosition(el, pos) {
+    if (el.nodeName !== 'INPUT' && el.nodeName !== 'TEXTAREA') return;
+
+    try {
+      if (el.setSelectionRange) {
+        el.setSelectionRange(pos, pos);
+      }
+    } catch (e) {}
   }
 
   function clearTimers() {
@@ -82,58 +77,60 @@
       clearTimeout(expansionTimer);
       expansionTimer = null;
     }
+
     if (typingTimer) {
       clearTimeout(typingTimer);
       typingTimer = null;
     }
   }
 
-  function replaceText(text, shortcut, autotext, cursorPosition) {
-    return text.slice(0, cursorPosition - shortcut.length) + autotext + text.slice(cursorPosition);
+  function replaceText(text, shortcut, expansion, cursorPosition) {
+    return text.slice(0, cursorPosition - shortcut.length) + expansion + text.slice(cursorPosition);
   }
 
-  function replaceTextContentEditable(shortcut, autotext, node, win) {
+  function findTextPosition(element, targetOffset, win) {
     if (!win) win = window;
 
-    const textInput = node.parentNode;
-    console.log('Text Expander: textInput:', textInput);
+    const doc = element.ownerDocument || win.document;
+    const walker = doc.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let traversed = 0;
+    let currentNode = walker.nextNode();
 
-    const cursorPosition = getCursorPosition(textInput, win);
-
-    let text = node.textContent || '';
-    let newContent = replaceText(text, shortcut, autotext, cursorPosition);
-
-    let multiline = false;
-    if (autotext.indexOf('\n') >= 0) {
-      const lines = newContent.split('\n');
-      newContent = lines.join('<br>');
-      multiline = true;
+    if (!currentNode) {
+      return { node: element, offset: 0 };
     }
 
-    const el = win.document.createElement('div');
-    el.innerHTML = newContent;
-
-    const frag = win.document.createDocumentFragment();
-    let cursorNode = null;
-
-    while (el.firstChild) {
-      const tempNode = el.firstChild;
-      if (tempNode.nodeType === Node.COMMENT_NODE && tempNode.nodeValue === 'CURSOR') {
-        cursorNode = tempNode;
+    while (currentNode) {
+      const length = currentNode.textContent.length;
+      if (targetOffset <= traversed + length) {
+        return { node: currentNode, offset: targetOffset - traversed };
       }
-      frag.appendChild(tempNode);
+
+      traversed += length;
+      currentNode = walker.nextNode();
     }
 
-    if (node.parentNode) {
-      node.parentNode.replaceChild(frag, node);
+    return { node: element, offset: element.childNodes.length };
+  }
 
-      if (cursorNode && cursorNode.parentNode) {
-        setCursorPositionAfterNode(cursorNode, win);
-        cursorNode.parentNode.removeChild(cursorNode);
-      } else if (textInput.lastChild) {
-        setCursorPositionAfterNode(textInput.lastChild, win);
+  function createExpansionFragment(expansion, win) {
+    if (!win) win = window;
+
+    const doc = win.document;
+    const fragment = doc.createDocumentFragment();
+    const lines = expansion.split('\n');
+
+    lines.forEach((line, index) => {
+      if (line) {
+        fragment.appendChild(doc.createTextNode(line));
       }
-    }
+
+      if (index < lines.length - 1) {
+        fragment.appendChild(doc.createElement('br'));
+      }
+    });
+
+    return fragment;
   }
 
   function setCursorPositionAfterNode(node, win) {
@@ -141,106 +138,74 @@
 
     try {
       const sel = win.getSelection();
-      if (sel && win.document.createRange) {
-        const range = win.document.createRange();
-        range.setStartAfter(node);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
+      if (!sel || !win.document.createRange) return;
+
+      const range = win.document.createRange();
+      range.setStartAfter(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
     } catch (e) {
       console.log('Text Expander: setCursorPositionAfterNode error', e);
     }
   }
 
-  function findFocusedNode(win) {
+  function replaceTextContentEditable(textInput, shortcut, expansion, win) {
     if (!win) win = window;
 
+    const cursorPosition = getCursorPosition(textInput, win);
+    const startOffset = cursorPosition - shortcut.length;
+
+    if (startOffset < 0) {
+      return false;
+    }
+
+    const start = findTextPosition(textInput, startOffset, win);
+    const end = findTextPosition(textInput, cursorPosition, win);
+
+    if (!start || !end) {
+      return false;
+    }
+
     try {
-      const sel = win.getSelection();
-      if (sel && sel.rangeCount) {
-        return sel.getRangeAt(0).startContainer;
+      const range = win.document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      range.deleteContents();
+
+      const fragment = createExpansionFragment(expansion, win);
+      const marker = win.document.createComment('text-expander-caret');
+      fragment.appendChild(marker);
+      range.insertNode(fragment);
+
+      setCursorPositionAfterNode(marker, win);
+      if (marker.parentNode) {
+        marker.parentNode.removeChild(marker);
       }
-    } catch (e) {}
-    return null;
+
+      return true;
+    } catch (e) {
+      console.log('Text Expander: replaceTextContentEditable error', e);
+      return false;
+    }
   }
 
   function expandText(textInput, shortcut, expansion, win) {
     if (!win) win = window;
+
     const tagName = textInput.nodeName.toUpperCase();
 
     if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
       const cursorPos = textInput.selectionStart;
       const currentText = textInput.value;
       const newText = replaceText(currentText, shortcut, expansion, cursorPos);
+      const newPos = cursorPos - shortcut.length + expansion.length;
 
       textInput.value = newText;
-      const newPos = cursorPos - shortcut.length + expansion.length;
-      textInput.setSelectionRange(newPos, newPos);
-    } else {
-      const sel = win.getSelection();
-      if (!sel || !sel.rangeCount) {
-        console.log('Text Expander: No selection');
-        return;
-      }
-
-      const range = sel.getRangeAt(0);
-
-      const cursorPos = getCursorPosition(textInput, win);
-      const currentText = getTextContent(textInput);
-
-      if (!currentText || currentText.length < shortcut.length) {
-        console.log('Text Expander: Not enough text');
-        return;
-      }
-
-      const textBeforeCursor = currentText.slice(0, cursorPos);
-      const shortcutEndPos = textBeforeCursor.lastIndexOf(shortcut);
-
-      if (shortcutEndPos === -1) {
-        console.log('Text Expander: Shortcut not found in text');
-        return;
-      }
-
-      if (range.startContainer.nodeType === Node.TEXT_NODE) {
-        const textNode = range.startContainer;
-        const textNodeContent = textNode.textContent || '';
-        const offsetInNode = cursorPos - textNodeContent.length;
-
-        if (offsetInNode >= 0 && shortcutEndPos < textNodeContent.length) {
-          range.setStart(textNode, shortcutEndPos - offsetInNode);
-          range.setEnd(textNode, shortcutEndPos - offsetInNode + shortcut.length);
-
-          sel.removeAllRanges();
-          sel.addRange(range);
-
-          range.deleteContents();
-
-          simulateTypingWithEvents(textInput, expansion, win);
-
-          console.log('Text Expander: Simulated typing for expansion');
-        } else {
-          const before = currentText.slice(0, shortcutEndPos);
-          const after = currentText.slice(shortcutEndPos + shortcut.length);
-          const newContent = before + expansion + after;
-
-          textInput.textContent = newContent;
-          setCursorPosition(textInput, shortcutEndPos + expansion.length, win);
-
-          console.log('Text Expander: Direct content replacement');
-        }
-      } else {
-        const before = currentText.slice(0, shortcutEndPos);
-        const after = currentText.slice(shortcutEndPos + shortcut.length);
-        const newContent = before + expansion + after;
-
-        textInput.textContent = newContent;
-
-        const newPos = shortcutEndPos + expansion.length;
-        setCursorPosition(textInput, newPos, win);
-
-        console.log('Text Expander: Fallback replacement');
-      }
+      setCursorPosition(textInput, newPos);
+    } else if (!replaceTextContentEditable(textInput, shortcut, expansion, win)) {
+      console.log('Text Expander: Contenteditable replacement failed');
+      return;
     }
 
     try {
@@ -253,104 +218,6 @@
     }
 
     console.log('Text Expander: Expanded', shortcut, 'to', expansion);
-  }
-
-  function simulateTypingWithEvents(element, text, win) {
-    if (!win) win = window;
-
-    const chars = text.split('');
-    let index = 0;
-
-    function typeNextChar() {
-      if (index >= chars.length) return;
-
-      const char = chars[index];
-      const isNewline = char === '\n';
-
-      if (isNewline) {
-        try {
-          const br = win.document.createElement('br');
-          const textNode = win.document.createTextNode('');
-          const container = win.document.createDocumentFragment();
-          container.appendChild(br);
-          container.appendChild(textNode);
-
-          const sel = win.getSelection();
-          if (sel && sel.rangeCount) {
-            const range = sel.getRangeAt(0);
-            range.deleteContents();
-            range.insertNode(container);
-
-            range.setStartAfter(textNode);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
-        } catch (e) {}
-      } else {
-        const keyCode = char.charCodeAt(0);
-
-        const eventInit = {
-          bubbles: true,
-          cancelable: true,
-          key: char,
-          code: 'Key' + char.toUpperCase(),
-          keyCode: keyCode,
-          which: keyCode
-        };
-
-        const keyDown = new KeyboardEvent('keydown', eventInit);
-        const keyPress = new KeyboardEvent('keypress', eventInit);
-        const keyUp = new KeyboardEvent('keyup', eventInit);
-
-        element.dispatchEvent(keyDown);
-        element.dispatchEvent(keyPress);
-
-        win.document.execCommand('insertText', false, char);
-
-        element.dispatchEvent(keyUp);
-      }
-
-      index++;
-      setTimeout(typeNextChar, 10);
-    }
-
-    typeNextChar();
-  }
-
-  function checkAndExpand(textInput, win) {
-    if (!snippets.length) return;
-    if (!textInput || !isEditableElement(textInput)) return;
-
-    const currentText = getTextContent(textInput);
-    if (!currentText) return;
-
-    const cursorPos = getCursorPosition(textInput, win);
-    if (cursorPos === 0) return;
-
-    const textBeforeCursor = currentText.slice(0, cursorPos);
-
-    let foundShortcut = '';
-    let shortcutPos = -1;
-
-    for (const snippet of snippets) {
-      const shortcut = snippet.shortcut;
-      const pos = textBeforeCursor.lastIndexOf(shortcut);
-      if (pos !== -1 && pos + shortcut.length <= textBeforeCursor.length) {
-        if (pos > shortcutPos) {
-          shortcutPos = pos;
-          foundShortcut = shortcut;
-        }
-      }
-    }
-
-    if (!foundShortcut) return;
-
-    const match = snippets.find(s => s.shortcut === foundShortcut);
-    if (match) {
-      console.log('Text Expander: Found match for', foundShortcut, 'at position', shortcutPos);
-      expandText(textInput, foundShortcut, match.expansion, win);
-    }
   }
 
   function getFocusedEditableElement(win) {
@@ -376,6 +243,7 @@
         }
       }
     } catch (e) {}
+
     return null;
   }
 
@@ -387,6 +255,7 @@
     for (let i = snippets.length - 1; i >= 0; i--) {
       const shortcut = snippets[i].shortcut;
       const shortcutStart = cursorPos - shortcut.length;
+
       if (shortcutStart >= 0) {
         const candidate = textBeforeCursor.slice(shortcutStart);
         if (candidate === shortcut) {
@@ -412,7 +281,7 @@
     const lastWord = findLastWordForShortcuts(currentText, cursorPos);
     if (!lastWord || lastWord.length < 2) return;
 
-    const match = snippets.find(s => s.shortcut === lastWord);
+    const match = snippets.find((snippet) => snippet.shortcut === lastWord);
     if (match) {
       console.log('Text Expander: Found match for', lastWord, '->', match.expansion);
       expandText(textInput, lastWord, match.expansion, win);
@@ -429,7 +298,6 @@
     if (!target || !isEditableElement(target)) return;
 
     clearTimers();
-
     console.log('Text Expander: input event on', target);
 
     expansionTimer = setTimeout(() => {
@@ -449,7 +317,7 @@
     }
   }
 
-  function handleBlur(event) {
+  function handleBlur() {
     clearTimers();
   }
 
