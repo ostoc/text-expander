@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Expander</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Text Expander</h1>
+
+    <div class="add-form">
+      <h2>Add New Snippet</h2>
+      <div class="form-row">
+        <input type="text" id="shortcut" placeholder="Shortcut (e.g., :sig)" required>
+        <input type="text" id="description" placeholder="Description (optional)">
+      </div>
+      <textarea id="expansion" placeholder="Expansion text" required></textarea>
+      <button id="addBtn">Add Snippet</button>
+    </div>
+
+    <div class="snippets-list">
+      <h2>Snippets</h2>
+      <div id="snippets"></div>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
